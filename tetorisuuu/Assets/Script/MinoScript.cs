@@ -3,23 +3,20 @@ using UnityEngine;
 public class MinoScript : MonoBehaviour
 {
     public Vector2Int position;
-    private int rotationIndex = 0;
+    // インデックスの代わりに現在の角度を保持
+    private float currentZRotation = 0f;
 
     [SerializeField] private Transform[] blocks;
 
-    //落下用
-    [SerializeField] private float fallInterval = 0.1f;
+    // 落下用
+    [SerializeField] private float fallInterval = 0.5f; // 0.1は早すぎるので少し調整
     private float fallTimer = 0f;
 
-    private Vector2Int[][] shapes =
+    // 形状データ（もう4パターン用意する必要はありません。1つだけでOK）
+    private Vector2Int[] baseShape = new Vector2Int[]
     {
-        new Vector2Int[] { new Vector2Int(0,0), new Vector2Int(-1,0), new Vector2Int(1,0), new Vector2Int(0,1) },
-        new Vector2Int[] { new Vector2Int(0,0), new Vector2Int(0,1), new Vector2Int(0,-1), new Vector2Int(1,0) },
-        new Vector2Int[] { new Vector2Int(0,0), new Vector2Int(-1,0), new Vector2Int(1,0), new Vector2Int(0,-1) },
-        new Vector2Int[] { new Vector2Int(0,0), new Vector2Int(0,1), new Vector2Int(0,-1), new Vector2Int(-1,0) }
+        new Vector2Int(0,0), new Vector2Int(-1,0), new Vector2Int(1,0), new Vector2Int(0,1)
     };
-
-    public Vector2Int[] CurrentShape => shapes[rotationIndex];
 
     void Start()
     {
@@ -34,100 +31,94 @@ public class MinoScript : MonoBehaviour
 
     void HandleInput()
     {
-        // 左移動
+        // 移動距離（5倍に底上げ）
+        int moveStep = 5;
+
+        // 左移動（5マス分）
         if (Input.GetKeyDown(KeyCode.LeftArrow))
         {
-            if (CanMove(Vector2Int.left))
-                Move(Vector2Int.left);
+            Vector2Int direction = Vector2Int.left * moveStep;
+            if (CanMove(direction)) Move(direction);
         }
 
-        // 右移動
+        // 右移動（5マス分）
         if (Input.GetKeyDown(KeyCode.RightArrow))
         {
-            if (CanMove(Vector2Int.right))
-                Move(Vector2Int.right);
+            Vector2Int direction = Vector2Int.right * moveStep;
+            if (CanMove(direction)) Move(direction);
         }
 
         // 下移動（手動）
         if (Input.GetKeyDown(KeyCode.DownArrow))
         {
-            if (CanMove(Vector2Int.down))
-                Move(Vector2Int.down);
+            Vector2Int direction = Vector2Int.down * moveStep;
+            if (CanMove(direction)) Move(direction);
         }
 
-        // 回転（WASD）
-        if (Input.GetKeyDown(KeyCode.W) ||
-            Input.GetKeyDown(KeyCode.A) ||
-            Input.GetKeyDown(KeyCode.S) ||
-            Input.GetKeyDown(KeyCode.D))
+        // --- 回転の切り替え ---
+        // Dキーで右回転（+90度）
+        if (Input.GetKeyDown(KeyCode.D))
         {
-            if (CanRotate())
-                Rotate();
+            if (CanRotate()) Rotate(90f);
+        }
+        // Aキーで左回転（-90度）
+        if (Input.GetKeyDown(KeyCode.A))
+        {
+            if (CanRotate()) Rotate(-90f);
         }
     }
 
-    //自動落下
+    // 引数で回転する向きを受け取れるように変更
+    public void Rotate(float angle)
+    {
+        // 現在の角度に足し引きする
+        currentZRotation = (currentZRotation + angle) % 360f;
+
+        // マイナス値になった時のための補正（例：-90度を270度として扱う）
+        if (currentZRotation < 0) currentZRotation += 360f;
+
+        UpdateVisual();
+    }
+
     void HandleAutoFall()
     {
-        fallTimer += Time.deltaTime / 2;
-
+        fallTimer += Time.deltaTime;
         if (fallTimer >= fallInterval)
         {
             fallTimer = 0f;
-
-            if (CanMove(Vector2Int.down))
-            {
-                Move(Vector2Int.down);
-            }
-            else
-            {
-                Debug.Log("着地！");
-                // 将来的にここで固定処理
-            }
+            if (CanMove(Vector2Int.down)) Move(Vector2Int.down);
         }
     }
 
     public void Initialize(Vector2Int startPos)
     {
         position = startPos;
-        rotationIndex = 0;
+        currentZRotation = 0f;
         UpdateVisual();
     }
 
     public void Move(Vector2Int direction)
     {
-        position += direction;
+        position += direction*2;
         UpdateVisual();
     }
 
-    public void Rotate()
-    {
-        rotationIndex = (rotationIndex + 1) % shapes.Length;
-        UpdateVisual();
-    }
-
-    bool CanMove(Vector2Int direction)
-    {
-        return true;
-    }
-
-    bool CanRotate()
-    {
-        return true;
-    }
+    bool CanMove(Vector2Int direction) => true; // 当たり判定は別途必要
+    bool CanRotate() => true;
 
     void UpdateVisual()
     {
+        // 1. 各ブロックの初期配置（baseShape）を適用
         for (int i = 0; i < blocks.Length; i++)
         {
-            if (i < CurrentShape.Length)
+            if (i < baseShape.Length)
             {
-                Vector2Int pos = CurrentShape[i];
-                blocks[i].localPosition = new Vector3(pos.x, pos.y, 0);
+                blocks[i].localPosition = new Vector3(baseShape[i].x, baseShape[i].y, 0);
             }
         }
 
-        // 親の位置で全体を動かす
+        // 2. 親（Mino本体）の座標と「角度」を更新
         transform.position = new Vector3(position.x, position.y, 0);
+        transform.rotation = Quaternion.Euler(0, 0, currentZRotation);
     }
 }
