@@ -7,6 +7,6 @@ public class SceneChanger : MonoBehaviour
     public void GoToGameScene()
     {
         // "Game" ‚Æ‚¢‚¤–¼‘O‚ÌƒV[ƒ“‚ÉØ‚è‘Ö‚¦‚é
-        SceneManager.LoadScene("GameScene");
+        SceneManager.LoadScene("Game");
     }
 }
