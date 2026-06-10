@@ -1,23 +1,37 @@
 using UnityEngine;
-using static Unity.Collections.AllocatorManager;
 
 public class MinoScript : MonoBehaviour
 {
-    // 以前の MinoData の代わりに、このミノの「ID（数字）」を持つ
     public int minoId;
+    public Vector2Int position;
 
     private Transform[] blocks;
-    public Vector2Int position;
     private int rotationIndex = 0;
     private float fallTimer = 0f;
     private float lockTimer = 0f;
     private bool isGrounded = false;
     private MinoSpawner spawner;
 
+    [SerializeField] private GameObject ghostPrefab;
+    private GameObject ghostInstance;
+
+    // 左右・下長押し（DAS）の設定定数
+    private const float DAS_DELAY = 0.2f;  // 長押しと判定されるまでの溜め時間（秒）
+    private const float DAS_SPEED = 0.04f; // 高速移動時の移動間隔（秒）
+
+    private float dasTimer = 0f;
+    private float dasMoveTimer = 0f;
+    private Vector2Int currentDir = Vector2Int.zero; // 現在ホールド中の移動方向
+
+    //private static readonly Vector2Int[,] WallKickDataNormal = new Vector2Int[4, 4][] 
+    //{
+
+    //};
+
     void Start()
     {
-        // 念のためStartでも取得処理を走らせるが、中身を「確定」させるために共通化
         SetupBlocks();
+        CreateGhost();
     }
 
     public void Initialize(Vector2Int startPos, int id, MinoSpawner spawner)
@@ -25,19 +39,17 @@ public class MinoScript : MonoBehaviour
         this.minoId = id;
         this.position = startPos;
         this.rotationIndex = 0;
-        this.spawner = spawner; // 連絡先を覚える
+        this.spawner = spawner;
 
         SetupBlocks();
         UpdateVisual();
+        CreateGhost();
     }
 
-    // 新しく追加：子要素の取得を100%確実に行うための共通関数
     private void SetupBlocks()
     {
-        // すでに配列が作られていて、数が一致しているなら何もしない（二重処理防止）
         if (blocks != null && blocks.Length == transform.childCount) return;
 
-        // 子要素（4つのブロック）を確実に取得して配列に格納する
         blocks = new Transform[transform.childCount];
         for (int i = 0; i < transform.childCount; i++)
         {
@@ -51,14 +63,75 @@ public class MinoScript : MonoBehaviour
         HandleAutoFall();
     }
 
+    // --- 入力システム関連（リファクタリングのメイン） ---
+
     private void HandleInput()
     {
-        if (Input.GetKeyDown(KeyCode.LeftArrow)) TryMove(Vector2Int.left);
-        if (Input.GetKeyDown(KeyCode.RightArrow)) TryMove(Vector2Int.right);
-        if (Input.GetKeyDown(KeyCode.DownArrow)) TryMove(Vector2Int.down);
+        // 1. 単発入力（回転、即落下）の処理
+        HandleSinglePressInput();
+
+        // 2. 方向キーが「新しく押された瞬間」の検知
+        HandleDirectionKeyDown();
+
+        // 3. 方向キーが「押し続けられている間」の長押し高速移動処理
+        HandleDirectionKeyHolding();
+    }
+
+    private void HandleSinglePressInput()
+    {
         if (Input.GetKeyDown(KeyCode.D)) TryRotate(1);
         if (Input.GetKeyDown(KeyCode.A)) TryRotate(-1);
+        if (Input.GetKeyDown(KeyCode.Space)) HardDrop();
     }
+
+    private void HandleDirectionKeyDown()
+    {
+        if (Input.GetKeyDown(KeyCode.LeftArrow)) StartDasMove(Vector2Int.left);
+        if (Input.GetKeyDown(KeyCode.RightArrow)) StartDasMove(Vector2Int.right);
+        if (Input.GetKeyDown(KeyCode.DownArrow)) StartDasMove(Vector2Int.down);
+    }
+
+    private void StartDasMove(Vector2Int dir)
+    {
+        currentDir = dir;
+        TryMove(currentDir);
+        dasTimer = 0f;
+        dasMoveTimer = 0f;
+    }
+
+    private void HandleDirectionKeyHolding()
+    {
+        if (currentDir == Vector2Int.zero) return;
+
+        // 現在記憶している方向に合わせたキーがホールドされているか確認
+        bool isHolding = (currentDir == Vector2Int.left && Input.GetKey(KeyCode.LeftArrow)) ||
+                         (currentDir == Vector2Int.right && Input.GetKey(KeyCode.RightArrow)) ||
+                         (currentDir == Vector2Int.down && Input.GetKey(KeyCode.DownArrow));
+
+        if (isHolding)
+        {
+            dasTimer += Time.deltaTime;
+
+            // 溜め時間を超えたら高速移動モード
+            if (dasTimer >= DAS_DELAY)
+            {
+                dasMoveTimer += Time.deltaTime;
+
+                if (dasMoveTimer >= DAS_SPEED)
+                {
+                    dasMoveTimer = 0f;
+                    TryMove(currentDir);
+                }
+            }
+        }
+        else
+        {
+            // キーが離されたら状態をリセット
+            currentDir = Vector2Int.zero;
+        }
+    }
+
+    // --- 自動落下・移動ロジック関連 ---
 
     private void HandleAutoFall()
     {
@@ -76,66 +149,77 @@ public class MinoScript : MonoBehaviour
         }
     }
 
-    private void TryMove(Vector2Int dir) { if (CanMove(position + dir, rotationIndex)) { position += dir; UpdateVisual(); } }
+    private void HardDrop()
+    {
+        // ゴーストの位置（最下点）までワープして即固定
+        position = GetGhostPosition();
+        UpdateVisual();
+        LockMino();
+    }
+
+    private void TryMove(Vector2Int dir)
+    {
+        if (CanMove(position + dir, rotationIndex))
+        {
+            position += dir;
+            UpdateVisual();
+        }
+    }
 
     private void TryRotate(int dir)
     {
-        int next = (rotationIndex + dir + 4) % 4;
-        if (CanMove(position, next)) { rotationIndex = next; UpdateVisual(); }
-    }
+        // 1. 次の回転状態を計算
+        int nextRotationIndex = (rotationIndex + dir + 4) % 4;
 
-    private void Move(Vector2Int dir) { position += dir; UpdateVisual(); }
-
-    private void UpdateVisual()
-    {
-        transform.rotation = Quaternion.identity;
-        transform.position = new Vector3(position.x, position.y, 0);
-
-        Vector2Int[] shape = Blocks.GetShape(minoId, rotationIndex);
-
-        for (int i = 0; i < blocks.Length; i++)
+        // 2. 壁蹴り（ずらし）のテストパターンを定義
+        // (0,0) 本来の位置
+        // (-1,0) 左に1マスずらす
+        // (1,0)  右に1マスずらす
+        // (0,1)  上に1マスずらす（床蹴り）
+        // (-1,1) 左上にずらす
+        // (1,1)  右上にずらす
+        Vector2Int[] kickOffsets = new Vector2Int[]
         {
-            blocks[i].localPosition = new Vector3(shape[i].x, shape[i].y, 0);
+            new Vector2Int(0, 0),
+            new Vector2Int(-1, 0),
+            new Vector2Int(1, 0),
+            new Vector2Int(0, 1),
+            new Vector2Int(-1, 1),
+            new Vector2Int(1, 1)
+        };
 
-            // ★追加：ID（数字）に応じて色（Color）を直接指定して塗り替える
-            SpriteRenderer sr = blocks[i].GetComponent<SpriteRenderer>();
-            if (sr != null)
+        // 3. 順番にテストを実行し、最初にすり抜けなかった場所で確定する
+        foreach (Vector2Int offset in kickOffsets)
+        {
+            Vector2Int testPosition = position + offset;
+
+            if (CanMove(testPosition, nextRotationIndex))
             {
-                sr.color = GetMinoColor(minoId);
+                // 成功したら位置と回転を更新して終了
+                position = testPosition;
+                rotationIndex = nextRotationIndex;
+                UpdateVisual();
+                return; // 壁蹴り成功！
             }
         }
+
+        // 全てのオフセットがダメだった場合は回転しない（何もしない）
     }
 
-    private Color GetMinoColor(int id)
+    private void Move(Vector2Int dir)
     {
-        switch (id)
-        {
-            case Blocks.I: return Color.cyan;    // 水色
-            case Blocks.O: return Color.yellow;      // 黄色
-            case Blocks.S: return Color.forestGreen;      // 緑
-            case Blocks.Z: return Color.red;      // 赤
-            case Blocks.J: return Color.blue;      // 青
-            case Blocks.L: return new Color(1f, 0.5f, 0f); // オレンジ (RGBで指定)
-            case Blocks.T: return new Color(0.5f, 0f, 0.5f); // 紫
-            default: return Color.white;
-        }
+        position += dir;
+        UpdateVisual();
     }
 
-    // 移動可能か調べる関数（計算だけで行うため、物理すり抜けは100%起きなくなります）
     private bool CanMove(Vector2Int newPos, int targetRotIndex)
     {
-        // 新Blocksクラスから次の形状の座標群を取得
         Vector2Int[] shape = Blocks.GetShape(minoId, targetRotIndex);
 
         foreach (var offset in shape)
         {
             Vector2Int checkPos = newPos + offset;
-
-            // StageManagerに、そのマスが空いているか（0かどうか）問い合わせる
-            if (!StageManager.IsValidPosition(checkPos))
-            {
-                return false; // 壁か床、または配置済みブロックにぶつかる
-            }
+            if (!StageManager.IsValidPosition(checkPos)) return false;
         }
         return true;
     }
@@ -151,34 +235,112 @@ public class MinoScript : MonoBehaviour
 
             if (gridX >= 0 && gridX < StageManager.Width && gridY >= 0 && gridY < StageManager.Height)
             {
-                // 1. 配列に数字を記録
                 StageManager.grid[gridX, gridY] = minoId;
+                blocks[i].gameObject.tag = "Untagged";
 
-                // 2. タグを外す
-                blocks[i].gameObject.tag = "LockedMino";
-
-                // もし子ブロック自体に間違って MinoScript が付いていた場合、ここで完全に削除する
-                // これにより、床に置かれたブロックが勝手に動き回ったりエラーを吐くのを防ぎます。
                 MinoScript oldScript = blocks[i].GetComponent<MinoScript>();
-                if (oldScript != null)
-                {
-                    Destroy(oldScript);
-                }
+                if (oldScript != null) Destroy(oldScript);
 
-                // 3. 親から切り離して置き去りにする
                 blocks[i].SetParent(null);
                 blocks[i].name = $"FixedBlock_{gridX}_{gridY}";
+
+                StageManager.visualGrid[gridX, gridY] = blocks[i].gameObject;
             }
         }
 
-        // 次の生成を依頼
-        if (spawner != null)
+        StageManager.ClearLines();
+
+        if (spawner != null) spawner.SpawnNextMino();
+        Destroy(gameObject);
+    }
+
+    // --- 見た目・予測位置（ゴースト）関連 ---
+
+    private void UpdateVisual()
+    {
+        transform.rotation = Quaternion.identity;
+        transform.position = new Vector3(position.x, position.y, 0);
+
+        Vector2Int[] shape = Blocks.GetShape(minoId, rotationIndex);
+
+        for (int i = 0; i < blocks.Length; i++)
         {
-            spawner.SpawnNextMino();
+            blocks[i].localPosition = new Vector3(shape[i].x, shape[i].y, 0);
+
+            SpriteRenderer sr = blocks[i].GetComponent<SpriteRenderer>();
+            if (sr != null) sr.color = GetMinoColor(minoId);
         }
 
-        // 最後に操作用の親オブジェクトを消去
-        Destroy(gameObject);
+        UpdateGhostPosition();
+    }
+
+    private Color GetMinoColor(int id)
+    {
+        switch (id)
+        {
+            case Blocks.I: return Color.cyan;
+            case Blocks.O: return Color.yellow;
+            case Blocks.S: return Color.green;
+            case Blocks.Z: return Color.red;
+            case Blocks.J: return Color.blue;
+            case Blocks.L: return Color.orange;
+            case Blocks.T: return Color.magenta;
+            default: return Color.white;
+        }
+    }
+
+    private void CreateGhost()
+    {
+        if (ghostPrefab != null && ghostInstance == null)
+        {
+            ghostInstance = Instantiate(ghostPrefab, Vector3.zero, Quaternion.identity);
+            UpdateGhostPosition();
+        }
+    }
+
+    private void UpdateGhostPosition()
+    {
+        if (ghostInstance == null) return;
+
+        Vector2Int[] shape = Blocks.GetShape(minoId, rotationIndex);
+        SpriteRenderer[] ghostBlockRenderers = ghostInstance.GetComponentsInChildren<SpriteRenderer>();
+
+        for (int i = 0; i < ghostBlockRenderers.Length; i++)
+        {
+            if (i < shape.Length)
+            {
+                ghostBlockRenderers[i].transform.localPosition = new Vector3(shape[i].x, shape[i].y, 0);
+                Color c = GetMinoColor(minoId);
+                c.a = 0.3f;
+                ghostBlockRenderers[i].color = c;
+            }
+        }
+
+        ghostInstance.transform.position = new Vector3(GetGhostPosition().x, GetGhostPosition().y, 0);
+    }
+
+    // ★リファクタ抽出：最下点の座標計算を一箇所に集約（HardDropとゴースト位置更新で共有）
+    private Vector2Int GetGhostPosition()
+    {
+        Vector2Int ghostPos = position;
+        while (true)
+        {
+            Vector2Int nextPos = ghostPos + new Vector2Int(0, -1);
+            if (CanMove(nextPos, rotationIndex))
+            {
+                ghostPos = nextPos;
+            }
+            else
+            {
+                break;
+            }
+        }
+        return ghostPos;
+    }
+
+    private void OnDestroy()
+    {
+        if (ghostInstance != null) Destroy(ghostInstance);
     }
 
     private void OnDrawGizmos()
