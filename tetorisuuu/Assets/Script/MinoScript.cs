@@ -23,11 +23,6 @@ public class MinoScript : MonoBehaviour
     private float dasMoveTimer = 0f;
     private Vector2Int currentDir = Vector2Int.zero; // 現在ホールド中の移動方向
 
-    //private static readonly Vector2Int[,] WallKickDataNormal = new Vector2Int[4, 4][] 
-    //{
-
-    //};
-
     void Start()
     {
         SetupBlocks();
@@ -79,16 +74,16 @@ public class MinoScript : MonoBehaviour
 
     private void HandleSinglePressInput()
     {
-        if (Input.GetKeyDown(KeyCode.D)) TryRotate(1);
-        if (Input.GetKeyDown(KeyCode.A)) TryRotate(-1);
+        if (Input.GetKeyDown(KeyCode.RightArrow)) TryRotate(1);
+        if (Input.GetKeyDown(KeyCode.LeftArrow)) TryRotate(-1);
         if (Input.GetKeyDown(KeyCode.Space)) HardDrop();
     }
 
     private void HandleDirectionKeyDown()
     {
-        if (Input.GetKeyDown(KeyCode.LeftArrow)) StartDasMove(Vector2Int.left);
-        if (Input.GetKeyDown(KeyCode.RightArrow)) StartDasMove(Vector2Int.right);
-        if (Input.GetKeyDown(KeyCode.DownArrow)) StartDasMove(Vector2Int.down);
+        if (Input.GetKeyDown(KeyCode.A)) StartDasMove(Vector2Int.left);
+        if (Input.GetKeyDown(KeyCode.D)) StartDasMove(Vector2Int.right);
+        if (Input.GetKeyDown(KeyCode.DownArrow)||Input.GetKeyDown(KeyCode.S)) StartDasMove(Vector2Int.down);
     }
 
     private void StartDasMove(Vector2Int dir)
@@ -104,9 +99,9 @@ public class MinoScript : MonoBehaviour
         if (currentDir == Vector2Int.zero) return;
 
         // 現在記憶している方向に合わせたキーがホールドされているか確認
-        bool isHolding = (currentDir == Vector2Int.left && Input.GetKey(KeyCode.LeftArrow)) ||
-                         (currentDir == Vector2Int.right && Input.GetKey(KeyCode.RightArrow)) ||
-                         (currentDir == Vector2Int.down && Input.GetKey(KeyCode.DownArrow));
+        bool isHolding = (currentDir == Vector2Int.left && Input.GetKey(KeyCode.A)) ||
+                         (currentDir == Vector2Int.right && Input.GetKey(KeyCode.D)) ||
+                         (currentDir == Vector2Int.down && Input.GetKey(KeyCode.S));
 
         if (isHolding)
         {
@@ -168,16 +163,9 @@ public class MinoScript : MonoBehaviour
 
     private void TryRotate(int dir)
     {
-        // 1. 次の回転状態を計算
+
         int nextRotationIndex = (rotationIndex + dir + 4) % 4;
 
-        // 2. 壁蹴り（ずらし）のテストパターンを定義
-        // (0,0) 本来の位置
-        // (-1,0) 左に1マスずらす
-        // (1,0)  右に1マスずらす
-        // (0,1)  上に1マスずらす（床蹴り）
-        // (-1,1) 左上にずらす
-        // (1,1)  右上にずらす
         Vector2Int[] kickOffsets = new Vector2Int[]
         {
             new Vector2Int(0, 0),
@@ -188,22 +176,18 @@ public class MinoScript : MonoBehaviour
             new Vector2Int(1, 1)
         };
 
-        // 3. 順番にテストを実行し、最初にすり抜けなかった場所で確定する
         foreach (Vector2Int offset in kickOffsets)
         {
             Vector2Int testPosition = position + offset;
 
             if (CanMove(testPosition, nextRotationIndex))
             {
-                // 成功したら位置と回転を更新して終了
                 position = testPosition;
                 rotationIndex = nextRotationIndex;
                 UpdateVisual();
-                return; // 壁蹴り成功！
+                return;
             }
         }
-
-        // 全てのオフセットがダメだった場合は回転しない（何もしない）
     }
 
     private void Move(Vector2Int dir)
@@ -282,7 +266,7 @@ public class MinoScript : MonoBehaviour
             case Blocks.O: return Color.yellow;
             case Blocks.S: return Color.green;
             case Blocks.Z: return Color.red;
-            case Blocks.J: return Color.blue;
+            case Blocks.J: return new Color(0.5f, 0.5f, 1f);//背景が青系なので見やすいように明るめの青に調整する
             case Blocks.L: return Color.orange;
             case Blocks.T: return Color.magenta;
             default: return Color.white;
@@ -319,7 +303,6 @@ public class MinoScript : MonoBehaviour
         ghostInstance.transform.position = new Vector3(GetGhostPosition().x, GetGhostPosition().y, 0);
     }
 
-    // ★リファクタ抽出：最下点の座標計算を一箇所に集約（HardDropとゴースト位置更新で共有）
     private Vector2Int GetGhostPosition()
     {
         Vector2Int ghostPos = position;
