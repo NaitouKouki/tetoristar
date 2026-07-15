@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: 2e6c7b5299471d44d930c1cb1b23b92a
+guid: 8671faebdc67dac4695b874295c3c08f
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 1991641067703454172
-    second: starJMino_0
+      213: -8349732813577775537
+    second: teton2_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -100,13 +100,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: starJMino_0
+      name: teton2_0
       rect:
         serializedVersion: 2
-        x: 0
-        y: 0
-        width: 1920
-        height: 1080
+        x: 1004
+        y: 72
+        width: 366
+        height: 840
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -115,8 +115,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: cd94b88bffab3ab10800000000000000
-      internalID: 1991641067703454172
+      spriteID: f46164dae3acf1c80800000000000000
+      internalID: -8349732813577775537
       vertices: []
       indices: 
       edges: []
@@ -135,7 +135,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      starJMino_0: 1991641067703454172
+      teton2_0: -8349732813577775537
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

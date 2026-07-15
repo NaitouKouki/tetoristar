@@ -23,8 +23,14 @@ public class MinoScript : MonoBehaviour
     private float dasMoveTimer = 0f;
     private Vector2Int currentDir = Vector2Int.zero; // 現在ホールド中の移動方向
 
+    private AudioSource audioSource;
+    [SerializeField] private AudioClip moveSound;   // 左右・下移動の音
+    [SerializeField] private AudioClip rotateSound; // 回転の音
+    [SerializeField] private GameObject fadeTrailPrefab;
+
     void Start()
     {
+        audioSource = GetComponent<AudioSource>();
         SetupBlocks();
         CreateGhost();
     }
@@ -35,6 +41,8 @@ public class MinoScript : MonoBehaviour
         this.position = startPos;
         this.rotationIndex = 0;
         this.spawner = spawner;
+
+        audioSource = GetComponent<AudioSource>();
 
         SetupBlocks();
         UpdateVisual();
@@ -58,11 +66,11 @@ public class MinoScript : MonoBehaviour
         HandleAutoFall();
     }
 
-    // --- 入力システム関連（リファクタリングのメイン） ---
+    // --- 入力システム関連 ---
 
     private void HandleInput()
     {
-        // 1. 単発入力（回転、即落下）の処理
+        // 1. 単発入力（回転、即落下、ホールド）の処理
         HandleSinglePressInput();
 
         // 2. 方向キーが「新しく押された瞬間」の検知
@@ -77,13 +85,23 @@ public class MinoScript : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.RightArrow)) TryRotate(1);
         if (Input.GetKeyDown(KeyCode.LeftArrow)) TryRotate(-1);
         if (Input.GetKeyDown(KeyCode.Space)) HardDrop();
+
+        // Qキーでホールド
+        if (Input.GetKeyDown(KeyCode.Q))
+        {
+            if (spawner != null)
+            {
+                spawner.PlayHoldSound();
+                spawner.HoldCurrentMino(minoId);
+            }
+        }
     }
 
     private void HandleDirectionKeyDown()
     {
         if (Input.GetKeyDown(KeyCode.A)) StartDasMove(Vector2Int.left);
         if (Input.GetKeyDown(KeyCode.D)) StartDasMove(Vector2Int.right);
-        if (Input.GetKeyDown(KeyCode.DownArrow)||Input.GetKeyDown(KeyCode.S)) StartDasMove(Vector2Int.down);
+        if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) StartDasMove(Vector2Int.down);
     }
 
     private void StartDasMove(Vector2Int dir)
@@ -101,7 +119,7 @@ public class MinoScript : MonoBehaviour
         // 現在記憶している方向に合わせたキーがホールドされているか確認
         bool isHolding = (currentDir == Vector2Int.left && Input.GetKey(KeyCode.A)) ||
                          (currentDir == Vector2Int.right && Input.GetKey(KeyCode.D)) ||
-                         (currentDir == Vector2Int.down && Input.GetKey(KeyCode.S));
+                         (currentDir == Vector2Int.down && (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)));
 
         if (isHolding)
         {
@@ -134,7 +152,7 @@ public class MinoScript : MonoBehaviour
         {
             isGrounded = false;
             fallTimer += Time.deltaTime;
-            if (fallTimer >= 0.5f) { fallTimer = 0f; Move(Vector2Int.down); }
+            if (fallTimer >= 0.9f) { fallTimer = 0f; Move(Vector2Int.down); }
         }
         else
         {
@@ -146,9 +164,51 @@ public class MinoScript : MonoBehaviour
 
     private void HardDrop()
     {
-        // ゴーストの位置（最下点）までワープして即固定
-        position = GetGhostPosition();
+        // 現在のY座標とゴースト（最下点）のY座標の差から、落としたマス数を計算
+        Vector2Int ghostPos = GetGhostPosition();
+        int dropDistance = position.y - ghostPos.y;
+
+        // ★追加：上から下までの落下ルートに残像を敷き詰める演出
+        if (fadeTrailPrefab != null && dropDistance > 0)
+        {
+            // 1マス下がるごとに残像を1個ずつ生成していく
+            for (int i = 1; i <= dropDistance; i++)
+            {
+                // 残像を配置する座標（現在のYからiマス下がった場所）
+                Vector3 trailPos = new Vector3(position.x, position.y - i, 0);
+
+                // 残像を生成
+                GameObject trail = Instantiate(fadeTrailPrefab, trailPos, Quaternion.identity);
+
+                // ★ここがポイント：残像の色を、今落ちているミノと同じ色に染める
+                SpriteRenderer[] trailRenders = trail.GetComponentsInChildren<SpriteRenderer>();
+                Vector2Int[] shape = Blocks.GetShape(minoId, rotationIndex);
+
+                for (int j = 0; j < trailRenders.Length; j++)
+                {
+                    if (j < shape.Length)
+                    {
+                        // ミノの形状に合わせて子ブロックの相対位置を再現
+                        trailRenders[j].transform.localPosition = new Vector3(shape[j].x, shape[j].y, 0);
+                        // 現在のミノの色を適用
+                        trailRenders[j].color = GetMinoColor(minoId);
+                    }
+                }
+            }
+        }
+
+        // ゴーストの位置までワープして以降の既存処理
+        position = ghostPos;
         UpdateVisual();
+
+        StageManager stageManager = FindFirstObjectByType<StageManager>();
+        if (stageManager != null && dropDistance > 0)
+        {
+            stageManager.AddDropScore(dropDistance * 2);
+        }
+
+        if (spawner != null) spawner.PlayHardDropSound();
+
         LockMino();
     }
 
@@ -158,12 +218,16 @@ public class MinoScript : MonoBehaviour
         {
             position += dir;
             UpdateVisual();
+
+            if (audioSource != null && moveSound != null)
+            {
+                audioSource.PlayOneShot(moveSound);
+            }
         }
     }
 
     private void TryRotate(int dir)
     {
-
         int nextRotationIndex = (rotationIndex + dir + 4) % 4;
 
         Vector2Int[] kickOffsets = new Vector2Int[]
@@ -185,6 +249,11 @@ public class MinoScript : MonoBehaviour
                 position = testPosition;
                 rotationIndex = nextRotationIndex;
                 UpdateVisual();
+
+                if (audioSource != null && rotateSound != null)
+                {
+                    audioSource.PlayOneShot(rotateSound);
+                }
                 return;
             }
         }
@@ -266,7 +335,7 @@ public class MinoScript : MonoBehaviour
             case Blocks.O: return Color.yellow;
             case Blocks.S: return Color.green;
             case Blocks.Z: return Color.red;
-            case Blocks.J: return new Color(0.5f, 0.5f, 1f);//背景が青系なので見やすいように明るめの青に調整する
+            case Blocks.J: return new Color(0.5f, 0.5f, 1f); //背景が青系なので見やすいように明るめの青に調整する
             case Blocks.L: return Color.orange;
             case Blocks.T: return Color.magenta;
             default: return Color.white;
